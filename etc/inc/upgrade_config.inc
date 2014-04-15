@@ -2788,8 +2788,8 @@ function upgrade_080_to_081() {
 		mwexec("$rrdtool restore -f {$g['tmp_path']}/{$xmldumpnew} {$rrddbpath}/{$database} 2>&1");
 		unset($xml);
 		# Default /tmp tmpfs is ~40mb, do not leave temp files around
-		unlink("{$g['tmp_path']}/{$xmldump}");
-		unlink("{$g['tmp_path']}/{$xmldumpnew}");
+		unlink_if_exists("{$g['tmp_path']}/{$xmldump}");
+		unlink_if_exists("{$g['tmp_path']}/{$xmldumpnew}");
 	}
 	enable_rrd_graphing();
 	/* Let's save the RRD graphs after we run enable RRD graphing */
@@ -3163,35 +3163,49 @@ function upgrade_099_to_100() {
 	install_cron_job("/usr/bin/nice -n20 newsyslog", false);
 }
 
+function upgrade_100_to_101() {
+	global $config, $g;
+
+	if (!is_array($config['voucher']))
+		return;
+
+	foreach ($config['voucher'] as $cpzone => $cp) {
+		if (!is_array($cp['roll']))
+			continue;
+		foreach ($cp['roll'] as $ridx => $rcfg) {
+			if (!empty($rcfg['comment']))
+				$config['voucher'][$cpzone]['roll'][$ridx]['descr'] = $rcfg['comment'];
+		}
+	}
+}
+
 function upgrade_101_to_102() {
 	global $config, $g;
 
-	if (!is_array($config['captiveportal']))
-		return;
+	if (is_array($config['captiveportal'])) {
+		foreach ($config['captiveportal'] as $cpzone => $cp) {
+			if (!is_array($cp['passthrumac']))
+				continue;
 
-	foreach ($config['captiveportal'] as $cpzone => $cp) {
-		if (!is_array($cp['passthrumac']))
-			continue;
-
-		foreach ($cp['passthrumac'] as $idx => $passthrumac)
-			$config['captiveportal'][$cpzone]['passthrumac'][$idx]['action'] = 'pass';
+			foreach ($cp['passthrumac'] as $idx => $passthrumac)
+				$config['captiveportal'][$cpzone]['passthrumac'][$idx]['action'] = 'pass';
+		}
 	}
 
 	/* Convert OpenVPN Compression option to the new style */
 	// Nothing to do if there is no OpenVPN tag
-	if (!isset($config['openvpn']) || !is_array($config['openvpn']))
-		return;
-
-	if (is_array($config['openvpn']['openvpn-server'])) {
-		foreach ($config['openvpn']['openvpn-server'] as &$vpn) {
-			if (!empty($vpn['compression']))
-				$vpn['compression'] = "adaptive";
+	if (isset($config['openvpn']) && is_array($config['openvpn'])) {
+		if (is_array($config['openvpn']['openvpn-server'])) {
+			foreach ($config['openvpn']['openvpn-server'] as &$vpn) {
+				if (!empty($vpn['compression']))
+					$vpn['compression'] = "adaptive";
+			}
 		}
-	}
-	if (is_array($config['openvpn']['openvpn-client'])) {
-		foreach ($config['openvpn']['openvpn-client'] as &$vpn) {
-			if (!empty($vpn['compression']))
-				$vpn['compression'] = "adaptive";
+		if (is_array($config['openvpn']['openvpn-client'])) {
+			foreach ($config['openvpn']['openvpn-client'] as &$vpn) {
+				if (!empty($vpn['compression']))
+					$vpn['compression'] = "adaptive";
+			}
 		}
 	}
 }

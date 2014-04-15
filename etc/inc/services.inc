@@ -1,7 +1,7 @@
 <?php
 /*
 	services.inc
-	part of the pfSense project (http://www.pfsense.com)
+	part of the pfSense project (https://www.pfsense.org)
 
 	originally part of m0n0wall (http://m0n0.ch/wall)
 	Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>.
@@ -388,9 +388,11 @@ function services_dhcpdv4_configure() {
 
 	/* Only consider DNS servers with IPv4 addresses for the IPv4 DHCP server. */
 	$dns_arrv4 = array();
-	foreach($syscfg['dnsserver'] as $dnsserver) {
-		if (is_ipaddrv4($dnsserver)) {
-			$dns_arrv4[] = $dnsserver;
+	if (is_array($syscfg['dnsserver'])) {
+		foreach($syscfg['dnsserver'] as $dnsserver) {
+			if (is_ipaddrv4($dnsserver)) {
+				$dns_arrv4[] = $dnsserver;
+			}
 		}
 	}
 
@@ -417,6 +419,7 @@ function services_dhcpdv4_configure() {
 option domain-name "{$syscfg['domain']}";
 option ldap-server code 95 = text;
 option domain-search-list code 119 = text;
+option arch code 93 = unsigned integer 16; # RFC4578
 {$custoptions}
 default-lease-time 7200;
 max-lease-time 86400;
@@ -761,10 +764,18 @@ EOD;
 			if ($dhcpifconf['nextserver'] <> "") {
 				$dhcpdconf .= "	next-server {$dhcpifconf['nextserver']};\n";
 			}
-			if ($dhcpifconf['filename'] <> "") {
+			if (!empty($dhcpifconf['filename']) && !empty($dhcpifconf['filename32']) && !empty($dhcpifconf['filename64'])) {
+				$dhcpdconf .= "	if option arch = 00:06 {\n";
+				$dhcpdconf .= "		filename \"{$dhcpifconf['filename32']}\";\n";
+				$dhcpdconf .= "	} else if option arch = 00:07 {\n";
+				$dhcpdconf .= "		filename \"{$dhcpifconf['filename64']}\";\n";
+				$dhcpdconf .= "	} else {\n";
+				$dhcpdconf .= "		filename \"{$dhcpifconf['filename']}\";\n";
+				$dhcpdconf .= "	}\n\n";
+			} elseif (!empty($dhcpifconf['filename'])) {
 				$dhcpdconf .= "	filename \"{$dhcpifconf['filename']}\";\n";
 			}
-			if ($dhcpifconf['rootpath'] <> "") {
+			if (!empty($dhcpifconf['rootpath'])) {
 				$dhcpdconf .= "	option root-path \"{$dhcpifconf['rootpath']}\";\n";
 			}
 		}
@@ -865,6 +876,7 @@ EOD;
 
 	if ($need_ddns_updates) {
 		$dhcpdconf .= "ddns-update-style interim;\n";
+		$dhcpdconf .= "update-static-leases on;\n";
 
 		$dhcpdconf .= dhcpdkey($dhcpifconf);
 		$dhcpdconf .= dhcpdzones($ddns_zones, $dhcpifconf);
@@ -1028,7 +1040,7 @@ function services_dhcpdv6_configure($blacklist = array()) {
 			$dhcpdv6cfg[$ifname]['range'] = array();
 			$dhcpdv6cfg[$ifname]['range']['from'] = Net_IPv6::compress(implode(":", $ifcfgipv6arr));
 			$ifcfgipv6arr[7] = "2000";
-			$dhcpdv6cfg[$ifname]['range']['to'] = Net_IPv6::compress(implode(":", $ifcfgipv6arr));;
+			$dhcpdv6cfg[$ifname]['range']['to'] = Net_IPv6::compress(implode(":", $ifcfgipv6arr));
 			/* prefix length > 0? We can add dhcp6 prefix delegation server */
 			if($pdlen > 2) {
 				$pdlenmax = $pdlen;
@@ -1450,7 +1462,7 @@ function services_dhcrelay_configure() {
 			if (is_array($config['gateways']['gateway_item'])) {
 				foreach ($config['gateways']['gateway_item'] as $gateway) {
 					if (isset($gateway['defaultgw'])) {
-						$destif = $gateway['interface'];
+						$destif = get_real_interface($gateway['interface']);
 						break;
 					}
 				}
@@ -1669,12 +1681,14 @@ function dyndnsCheckIP($int) {
 		// Avoid the long wait for the external check to timeout.
 		if (stristr($gateways_status[$config['interfaces'][$int]['gateway']]['status'],"down"))
 			return "down";
-		$hosttocheck = "checkip.dyndns.org";
-		$checkip = gethostbyname($hosttocheck);
-		$ip_ch = curl_init("http://{$checkip}");
+		$hosttocheck = "http://checkip.dyndns.org";
+		$ip_ch = curl_init($hosttocheck);
 		curl_setopt($ip_ch, CURLOPT_RETURNTRANSFER, 1);
 		curl_setopt($ip_ch, CURLOPT_SSL_VERIFYPEER, FALSE);
 		curl_setopt($ip_ch, CURLOPT_INTERFACE, $ip_address);
+		curl_setopt($ip_ch, CURLOPT_CONNECTTIMEOUT, '30');
+		curl_setopt($ip_ch, CURLOPT_TIMEOUT, 120);
+		curl_setopt($ip_ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 		$ip_result_page = curl_exec($ip_ch);
 		curl_close($ip_ch);
 		$ip_result_decoded = urldecode($ip_result_page);
@@ -1852,7 +1866,7 @@ function services_unbound_configure() {
 
 	if (isset($config['unbound']['enable'])) {
 		if ($g['booting'])
-			echo gettext("Starting Unbound DNS forwarder...");
+			echo gettext("Starting DNS Resolver...");
 		else
 			sleep(1);
 
@@ -2094,9 +2108,13 @@ function services_dnsupdate_process($int = "", $updatehost = "", $forced = false
 
 			/* determine interface name */
 			$if = get_real_interface($dnsupdate['interface']);
-			$wanip = get_interface_ip($dnsupdate['interface']);
+			
+			if (isset($dnsupdate['usepublicip']))
+                                $wanip = dyndnsCheckIP($dnsupdate['interface']);
+                        else
+                                $wanip = get_interface_ip($dnsupdate['interface']);
+			
 			$wanipv6 = get_interface_ipv6($dnsupdate['interface']);
-
 			$cacheFile = "{$g['conf_path']}/dyndns_{$dnsupdate['interface']}_rfc2136_" . escapeshellarg($dnsupdate['host']) . "_{$dnsupdate['server']}.cache";
 			$currentTime = time();
 
@@ -2160,9 +2178,6 @@ EOD;
 				/* Update IPv4 if we have it. */
 				if (is_ipaddrv4($wanip)) {
 					if (($wanip != $cachedipv4) || (($currentTime - $cacheTimev4) > $maxCacheAgeSecs) || $forced) {
-						if (isset($dnsupdate['usepublicip'])) {
-							$wanip = dyndnsCheckIP($dnsupdate['interface']);
-						}
 						$upinst .= "update delete {$dnsupdate['host']}. A\n";
 						$upinst .= "update add {$dnsupdate['host']}. {$dnsupdate['ttl']} A {$wanip}\n";
 						$notify_text .= sprintf(gettext("DynDNS updated IP Address (A) for {$dnsupdate['host']} on %s (%s) to %s"), convert_real_interface_to_friendly_descr($if), $if, $wanip) . "\n";

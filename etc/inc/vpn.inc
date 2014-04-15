@@ -45,7 +45,7 @@ require_once("ipsec.inc");
 
 function vpn_ipsec_configure_loglevels()
 {
-	global $config;
+	global $config, $ipsec_loglevels;
 
 	foreach ($ipsec_loglevels as $lkey => $ldescr) {
 		if (empty($config['ipsec']["ipsec_{$lkey}"]))
@@ -132,7 +132,6 @@ function vpn_ipsec_configure($ipchg = false)
 	} else {
 		mwexec("/sbin/ifconfig enc0 up");
 		mwexec("/sbin/sysctl net.inet.ip.ipsec_in_use=1");
-		/* needed for racoonctl admin socket */
 		/* needed for config files */
 		if (!is_dir("{$g['varetc_path']}/ipsec"))
 			mkdir("{$g['varetc_path']}/ipsec");
@@ -280,6 +279,7 @@ charon {
 		auth {
 		    default = -1
 		    ike = 1
+		    ike_name = yes
 		}
 	}
 
@@ -506,6 +506,7 @@ EOD;
 		chmod("{$g['varetc_path']}/ipsec/ipsec.secrets", 0600);
 		unset($pskconf);
 
+		$natfilterrules = false;
 		/* begin ipsec.conf */
 		$ipsecconf = "";
 		if ((is_array($a_phase1) && count($a_phase1)) || (is_array($a_phase2) && count($a_phase2))) {
@@ -661,12 +662,10 @@ EOD;
 						$localid_type = $ph2ent['localid']['type'];
 						$localid_data = ipsec_idinfo_to_cidr($ph2ent['localid'], false, $ph2ent['mode']);
 						/* Do not print localid in some cases, such as a pure-psk or psk/xauth single phase2 mobile tunnel */
-						if (($localid_type == "none" || $localid_type == "mobile") ||
-							(($ph1ent['authentication_method'] == "xauth_psk_server") ||
-							($ph1ent['authentication_method'] == "pre_shared_key"))
+						if (($localid_type == "none" || $localid_type == "mobile")
 							&& isset($ph1ent['mobile'])
 							&& (ipsec_get_number_of_phase2($ikeid)==1))
-							$localid_spec = "%mobile";
+							$localid_spec = "%any";
 						else {
 							if ($localid_type != "address") {
 								$localid_type = "subnet";
@@ -677,15 +676,16 @@ EOD;
 								continue;
 							}
 							$localid_spec = $ep;
-							if (0 && !empty($ph2ent['natlocalid'])) {
+							if (!empty($ph2ent['natlocalid'])) {
 								$natlocalid_data =  ipsec_idinfo_to_cidr($ph2ent['natlocalid'], false, $ph2ent['mode']);
 								if ($ph2ent['natlocalid']['type'] != "address") {
 									if (is_subnet($natlocalid_data))
-										$localid_spec .= " nat subnet {$natlocalid_data} any";
+										$localid_data = "{$natlocalid_data}|{$localid_data}";
 								} else {
 									if (is_ipaddr($natlocalid_data))
-										$localid_spec .= " nat address {$natlocalid_data} any";
+										$localid_data = "{$natlocalid_data}|{$localid_data}";
 								}
+								$natfilterrules = true;
 							}
 						}
 
@@ -800,7 +800,7 @@ EOD;
 
 					$ipsecconf .=<<<EOD
 
-conn con{$ph2ent['ikeid']}{$ph2ent['ikeid']}
+conn con{$ph2ent['ikeid']}-{$ph2ent['ikeid']}
 	aggressive = {$aggressive}
 	fragmentation = yes
 	keyexchange = {$keyexchange}
@@ -837,8 +837,6 @@ EOD;
 	unset($ipsecconf);
 	/* end ipsec.conf */
 
-	/* generate IPsec policies */
-	$natfilterrules = false;
 	/* mange process */
 	if (isvalidpid("{$g['varrun_path']}/charon.pid")) {
 		/* Read secrets */
@@ -846,10 +844,9 @@ EOD;
 		/* Update configuration changes */
 		mwexec("/usr/local/sbin/ipsec update", false);
 	} else {
-		/* start racoon */
-		$ipsecdebug = isset($config['ipsec']['racoondebug']) ? "-d -v" : "";
-		mwexec("/usr/local/sbin/ipsec restart", false); 
+		mwexec("/usr/local/sbin/ipsec start", false); 
 	}
+	vpn_ipsec_configure_loglevels();
 	if ($natfilterrules == true)
 		filter_configure();
 	/* start filterdns, if necessary */
@@ -901,27 +898,14 @@ function vpn_ipsec_force_reload($interface = "") {
 			}
 		}
 		if (!$found) {
-			log_error(sprintf(gettext("Ignoring IPsec racoon daemon reload since there are no tunnels on interface %s"), $interface));
+			log_error(sprintf(gettext("Ignoring IPsec reload since there are no tunnels on interface %s"), $interface));
 			return;
 		}
 	}
 
-	/* send a SIGKILL to be sure */
-	killbypid("{$g['varrun_path']}/racoon.pid");
-
-	/* wait for process to die */
-	sleep(4);
-
-	/* kill racoon forcefully */
-	if (is_process_running("racoon"))
-		mwexec("/usr/bin/killall -9 racoon", true);
-
-	/* wait for flushing to finish */
-	sleep(1);
-
 	/* if ipsec is enabled, start up again */
 	if (isset($ipseccfg['enable'])) {
-		log_error(gettext("Forcefully reloading IPsec racoon daemon"));
+		log_error(gettext("Forcefully reloading IPsec"));
 		vpn_ipsec_configure();
 	}
 }

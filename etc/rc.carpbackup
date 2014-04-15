@@ -3,7 +3,7 @@
 /* $Id$ */
 /*
     rc.carpdown
-    part of pfSense (http://www.pfSense.com)
+    part of pfSense (https://www.pfsense.org)
     Copyright (C) 2004 Scott Ullrich
     All rights reserved.
 
@@ -35,7 +35,7 @@ require_once("notices.inc");
 require_once("openvpn.inc");
 require_once("interfaces.inc");
 
-if (isset($_GET)) {
+if (isset($_GET))
         $argument = $_GET['interface'];
 else
 	$argument = str_replace("\n", "", $argv[1]);
@@ -64,5 +64,10 @@ if (is_array($config['openvpn']) && is_array($config['openvpn']['openvpn-client'
 	}
 }
 
+$pluginparams = array();
+$pluginparams['type'] = 'carp';
+$pluginparams['event'] = 'rc.carpbackup';
+$pluginparams['interface'] = $argv[1];
+pkg_call_plugins('plugin_carp', $pluginparams);
 
 ?>

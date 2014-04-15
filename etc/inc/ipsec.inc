@@ -60,14 +60,14 @@ $peer_identifier_list = array(
 
 $p1_ealgos = array(
 	'aes' => array( 'name' => 'AES', 'keysel' => array( 'lo' => 128, 'hi' => 256, 'step' => 64 ) ),
-	'blowfish' => array( 'name' => 'Blowfish', 'keysel' => array( 'lo' => 128, 'hi' => 256, 'step' => 8 ) ),
+	'blowfish' => array( 'name' => 'Blowfish', 'keysel' => array( 'lo' => 128, 'hi' => 256, 'step' => 64 ) ),
 	'3des' => array( 'name' => '3DES' ),
 	'cast128' => array( 'name' => 'CAST128' ),
 	'des' => array( 'name' => 'DES' ));
 
 $p2_ealgos = array(
 	'aes' => array( 'name' => 'AES', 'keysel' => array( 'lo' => 128, 'hi' => 256, 'step' => 64 ) ),
-	'blowfish' => array( 'name' => 'Blowfish', 'keysel' => array( 'lo' => 128, 'hi' => 256, 'step' => 8 ) ),
+	'blowfish' => array( 'name' => 'Blowfish', 'keysel' => array( 'lo' => 128, 'hi' => 256, 'step' => 64 ) ),
 	'3des' => array( 'name' => '3DES' ),
 	'cast128' => array( 'name' => 'CAST128' ),
 	'des' => array( 'name' => 'DES' ));
